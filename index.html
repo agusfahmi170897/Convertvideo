@@ -46,7 +46,7 @@ progress[hidden]{display:none}
 <p id="meta"></p>
 <section id="cfg" hidden>
 <div class="q" id="q" role="radiogroup" aria-label="Kualitas MP3"></div>
-<p class="hint">Di atas 192 kbps telinga umumnya tidak bisa membedakannya dari sumber, tapi ukuran file membengkak. Kualitas juga tidak bisa melebihi audio asli video.</p>
+<p class="hint">Di atas 192 kbps telinga umumnya tidak bisa membedakannya dari sumber, tapi ukuran file membengkak. Kualitas juga tidak bisa melebihi audio asli video. Audio di atas ±30 menit bisa gagal di HP karena memori.</p>
 <progress id="pg" max="1" value="0" hidden></progress>
 <button id="go" type="button">Konversi ke MP3</button>
 <div id="res" hidden><audio id="au" controls></audio><p id="rs"></p><button id="sv" type="button">Simpan MP3</button></div>
@@ -70,6 +70,41 @@ h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true)
 g.setUint32(0,0x02014b50,true);g.setUint16(4,20,true);g.setUint16(6,20,true);g.setUint16(8,0x0800,true);g.setUint16(14,33,true);g.setUint32(16,c,true);g.setUint32(20,L,true);g.setUint32(24,L,true);g.setUint16(28,l,true);
 e.setUint32(0,0x06054b50,true);e.setUint16(8,1,true);e.setUint16(10,1,true);e.setUint32(12,46+l,true);e.setUint32(16,30+l+L,true);
 return new Blob([h,nb,d,g,nb,e],{type:'application/zip'})}
+const te=t=>new TextEncoder().encode(t);
+const mk=(t,...p)=>{const z=p.reduce((a,x)=>a+x.length,8),o=new Uint8Array(z);new DataView(o.buffer).setUint32(0,z);o.set(te(t),4);let k=8;for(const x of p){o.set(x,k);k+=x.length}return o};
+function kids(d,s,e){const r=[];while(s+8<=e){let z=d.getUint32(s),h=8;if(z==1){z=Number(d.getBigUint64(s+8));h=16}else if(!z)z=e-s;if(z<h)break;r.push({t:String.fromCharCode(d.getUint8(s+4),d.getUint8(s+5),d.getUint8(s+6),d.getUint8(s+7)),s,e:Math.min(s+z,e),h});s+=z}return r}
+const sub=(d,b,t)=>kids(d,b.s+b.h,b.e).find(c=>c.t==t);
+async function dec(a){const AC=window.AudioContext||window.webkitAudioContext;let c;try{c=new AC({sampleRate:44100})}catch(_){c=new AC()}try{return await c.decodeAudioData(a)}finally{c.close()}}
+async function extract(f){
+let p=0,mp,ft;
+while(p+8<=f.size){
+const h=new DataView(await f.slice(p,p+16).arrayBuffer());let z=h.getUint32(0);const t=String.fromCharCode(h.getUint8(4),h.getUint8(5),h.getUint8(6),h.getUint8(7));
+if(z==1)z=Number(h.getBigUint64(8));else if(!z)z=f.size-p;
+if(z<8)break;
+if(t=='moov')mp=[p,z];else if(t=='ftyp'&&z<256)ft=new Uint8Array(await f.slice(p,p+z).arrayBuffer());
+p+=z}
+if(!mp)throw 0;
+const mbuf=await f.slice(mp[0],mp[0]+mp[1]).arrayBuffer(),d=new DataView(mbuf),root={s:0,h:d.getUint32(0)==1?16:8,e:mbuf.byteLength};
+let tk,stbl;
+for(const t of kids(d,root.h,root.e)){if(t.t!='trak')continue;const md=sub(d,t,'mdia'),hd=md&&sub(d,md,'hdlr');if(hd&&d.getUint32(hd.s+hd.h+8)==0x736f756e){tk=t;stbl=sub(d,sub(d,md,'minf'),'stbl');break}}
+if(!stbl)throw 0;
+const st=n=>sub(d,stbl,n),co=st('stco')||st('co64'),sc=st('stsc'),sz=st('stsz'),q=st('stsd');
+if(!co||!sc||!sz||!q)throw 0;
+const u=o=>d.getUint32(o),big=co.t=='co64',nc=u(co.s+co.h+4),ns=u(sc.s+sc.h+4),cs=u(sz.s+sz.h+4),cnt=u(sz.s+sz.h+8),offs=[],S=[],len=[];
+if(!nc||!ns||!cnt)throw 0;
+for(let i=0;i<nc;i++)offs.push(big?Number(d.getBigUint64(co.s+co.h+8+i*8)):u(co.s+co.h+8+i*4));
+for(let i=0;i<ns;i++)S.push([u(sc.s+sc.h+8+i*12),u(sc.s+sc.h+12+i*12)]);
+for(let c=0,j=0,si=0;c<nc;c++){while(j+1<ns&&S[j+1][0]<=c+1)j++;const n=S[j][1];let L=0;if(cs)L=n*cs;else for(let k=0;k<n&&si+k<cnt;k++)L+=u(sz.s+sz.h+12+(si+k)*4);si+=n;len.push(L)}
+const tot=len.reduce((a,b)=>a+b,0);
+ft=ft||mk('ftyp',te('isom'),new Uint8Array(4),te('isomiso2'));
+const parts=[];
+for(let i=0;i<nc;i+=64)parts.push(...await Promise.all(offs.slice(i,i+64).map((o,k)=>f.slice(o,o+len[i+k]).arrayBuffer())));
+const tr=new Uint8Array(mbuf.slice(tk.s,tk.e)),dv=new DataView(tr.buffer),ob=co.s-tk.s+co.h+8,mh=sub(d,root,'mvhd'),mdh=new Uint8Array(8);
+let o=ft.length+8;
+for(let i=0;i<nc;i++){if(big)dv.setBigUint64(ob+i*8,BigInt(o));else dv.setUint32(ob+i*4,o);o+=len[i]}
+new DataView(mdh.buffer).setUint32(0,8+tot);mdh.set(te('mdat'),4);
+const ab=await new Blob([ft,mdh,...parts,mk('moov',new Uint8Array(mbuf.slice(mh.s,mh.e)),tr)]).arrayBuffer();
+return[ab,'Codec audio: '+String.fromCharCode(...new Uint8Array(mbuf,q.s+q.h+12,4)).trim()+', audio '+mb(tot)+' MB dari video '+mb(f.size)+' MB']}
 async function save(b,name){
 const d=window.claude?await claude.use('downloads'):null;
 if(d){try{await d.save({filename:name,data:b});return 'mp3'}catch(x){if(x.code!='rejected_extension')throw x}
@@ -81,9 +116,12 @@ $('#go').onclick=async()=>{
 const m=$('#msg'),g=$('#go'),pg=$('#pg');m.className='';m.textContent='Membaca audio…';g.disabled=true;pg.hidden=false;pg.value=0;$('#res').hidden=true;
 try{
 if(!window.lamejs)throw Error('Pustaka MP3 gagal dimuat. Periksa koneksi lalu muat ulang halaman.');
-const AC=window.AudioContext||window.webkitAudioContext;let cx;try{cx=new AC({sampleRate:44100})}catch(_){cx=new AC()}
-let buf;try{buf=await cx.decodeAudioData(await file.arrayBuffer())}catch(_){throw Error('Audio tidak bisa dibaca. Formatnya belum didukung browser, atau file terlalu besar untuk memori perangkat.')}
-cx.close();
+let ab,info='',buf,err;
+try{[ab,info]=await extract(file)}catch(_){}
+m.textContent='Mendekode audio…';
+try{buf=await dec(ab||await file.arrayBuffer())}catch(x){err=x}
+if(!buf&&ab&&file.size<3e8){try{buf=await dec(await file.arrayBuffer())}catch(_){}}
+if(!buf)throw Error('Browser gagal mendekode audio ('+(err&&err.name||'error')+'). '+(info?info+'. ':'File '+mb(file.size)+' MB. ')+'Penyebab umum: codec audio bukan AAC/MP3, atau durasi terlalu panjang untuk memori.');
 const [k,,t]=Q[qi],L=buf.getChannelData(0),R=buf.numberOfChannels>1?buf.getChannelData(1):null,ch=t=='mono'||!R?1:2,e=new lamejs.Mp3Encoder(ch,buf.sampleRate,k),P=[],S=1152*10;
 m.textContent='Mengonversi…';
 for(let i=0,c=0;i<L.length;i+=S,c++){
