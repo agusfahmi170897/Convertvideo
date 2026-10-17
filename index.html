@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MP4 ke MP3</title>
+<style>
+:root{--bg:#f6f5fa;--sf:#fff;--ink:#1d1b2e;--mut:#625f7a;--ac:#5b3fd6;--aci:#fff;--bd:#d9d6e8;--er:#b3261e;color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12111c;--sf:#1c1a2b;--ink:#ecebf5;--mut:#a29fba;--ac:#a99bff;--aci:#17123a;--bd:#2f2c45;--er:#ff8a80}}
+:root[data-theme="dark"]{--bg:#12111c;--sf:#1c1a2b;--ink:#ecebf5;--mut:#a29fba;--ac:#a99bff;--aci:#17123a;--bd:#2f2c45;--er:#ff8a80}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Avenir Next","Segoe UI",system-ui,sans-serif}
+main{max-width:34rem;margin:0 auto;padding:1.5rem 1rem 3rem}
+h1{font-size:1.75rem;line-height:1.15;margin:0 0 .4rem;letter-spacing:-.02em}
+.sub,.hint,#meta{color:var(--mut)}
+.sub{margin:0 0 1.25rem}
+#meta{margin:.7rem 0 0}
+.drop{position:relative;display:block;border:2px dashed var(--bd);border-radius:12px;padding:1.1rem;text-align:center;background:var(--sf)}
+.drop:hover,.drop:focus-within{border-color:var(--ac)}
+.drop input{position:absolute;inset:0;width:100%;opacity:0;cursor:pointer}
+section{margin-top:1.25rem}
+.q{display:grid;gap:.5rem}
+button{font:inherit;color:inherit;border:1px solid var(--bd);border-radius:12px;padding:.7rem .9rem;background:var(--sf);cursor:pointer}
+.q button{display:flex;flex-direction:column;align-items:flex-start;text-align:left}
+.q small{color:var(--mut)}
+.q button[aria-checked="true"]{border-color:var(--ac);box-shadow:0 0 0 1px var(--ac)}
+.hint{font-size:.9rem;margin:.8rem 0}
+progress{display:block;width:100%;height:10px;accent-color:var(--ac);margin:.8rem 0}
+progress[hidden]{display:none}
+#go,#sv{width:100%;background:var(--ac);color:var(--aci);border-color:var(--ac);font-weight:600}
+#go:disabled{opacity:.5;cursor:not-allowed}
+#res{margin-top:1rem;padding:1rem;background:var(--sf);border:1px solid var(--bd);border-radius:12px}
+#res audio{width:100%}
+#msg{min-height:1.5em;margin:.8rem 0 0;color:var(--mut)}
+#msg.err{color:var(--er)}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js"></script>
+</head>
+<body>
+<main>
+<h1>MP4 ke MP3</h1>
+<p class="sub">Ambil suara dari video lalu simpan sebagai MP3 yang ringan. Diproses di perangkatmu, tanpa upload.</p>
+<label class="drop"><input type="file" id="f" accept="video/*,audio/*,.mp4,.m4a,.mov"><span id="dn">Pilih file video (MP4)</span></label>
+<p id="meta"></p>
+<section id="cfg" hidden>
+<div class="q" id="q" role="radiogroup" aria-label="Kualitas MP3"></div>
+<p class="hint">Di atas 192 kbps telinga umumnya tidak bisa membedakannya dari sumber, tapi ukuran file membengkak. Kualitas juga tidak bisa melebihi audio asli video.</p>
+<progress id="pg" max="1" value="0" hidden></progress>
+<button id="go" type="button">Konversi ke MP3</button>
+<div id="res" hidden><audio id="au" controls></audio><p id="rs"></p><button id="sv" type="button">Simpan MP3</button></div>
+</section>
+<p id="msg" role="status"></p>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const Q=[[64,'Ucapan','mono'],[128,'Kecil',''],[192,'Seimbang','disarankan'],[320,'Maksimal','']];
+let file,dur=0,qi=2,out;
+const mb=b=>(b/1048576).toFixed(1);
+const fmt=s=>{s=Math.round(s);return(s/60|0)+':'+String(s%60).padStart(2,'0')};
+const i16=(f,g)=>{const o=new Int16Array(f.length);for(let i=0;i<f.length;i++){const s=Math.max(-1,Math.min(1,g?(f[i]+g[i])/2:f[i]));o[i]=s*(s<0?32768:32767)}return o};
+function draw(){const q=$('#q');q.innerHTML='';Q.forEach(([k,n,t],i)=>{const b=document.createElement('button');b.type='button';b.setAttribute('role','radio');b.setAttribute('aria-checked',i==qi);b.innerHTML='<b>'+n+'</b><small>'+k+' kbps'+(t?', '+t:'')+(dur?', ±'+mb(k*125*dur)+' MB':'')+'</small>';b.onclick=()=>{qi=i;draw()};q.append(b)})}
+const crcT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc=u=>{let c=-1;for(let i=0;i<u.length;i++)c=crcT[(c^u[i])&255]^(c>>>8);return(c^-1)>>>0};
+async function zip(name,blob){
+const d=new Uint8Array(await blob.arrayBuffer()),nb=new TextEncoder().encode(name),c=crc(d),L=d.length,l=nb.length;
+const h=new DataView(new ArrayBuffer(30)),g=new DataView(new ArrayBuffer(46)),e=new DataView(new ArrayBuffer(22));
+h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(12,33,true);h.setUint32(14,c,true);h.setUint32(18,L,true);h.setUint32(22,L,true);h.setUint16(26,l,true);
+g.setUint32(0,0x02014b50,true);g.setUint16(4,20,true);g.setUint16(6,20,true);g.setUint16(8,0x0800,true);g.setUint16(14,33,true);g.setUint32(16,c,true);g.setUint32(20,L,true);g.setUint32(24,L,true);g.setUint16(28,l,true);
+e.setUint32(0,0x06054b50,true);e.setUint16(8,1,true);e.setUint16(10,1,true);e.setUint32(12,46+l,true);e.setUint32(16,30+l+L,true);
+return new Blob([h,nb,d,g,nb,e],{type:'application/zip'})}
+async function save(b,name){
+const d=window.claude?await claude.use('downloads'):null;
+if(d){try{await d.save({filename:name,data:b});return 'mp3'}catch(x){if(x.code!='rejected_extension')throw x}
+await d.save({filename:name.replace(/\.mp3$/,'.zip'),data:await zip(name,b)});return 'zip'}
+const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);return 'mp3'}
+$('#f').onchange=e=>{file=e.target.files[0];if(!file)return;out=null;dur=0;$('#res').hidden=true;$('#msg').textContent='';$('#dn').textContent=file.name;$('#meta').textContent=mb(file.size)+' MB';
+const v=document.createElement('video');v.preload='metadata';v.onloadedmetadata=()=>{dur=v.duration;$('#meta').textContent=fmt(dur)+' menit, '+mb(file.size)+' MB';draw()};v.src=URL.createObjectURL(file);$('#cfg').hidden=false;draw()};
+$('#go').onclick=async()=>{
+const m=$('#msg'),g=$('#go'),pg=$('#pg');m.className='';m.textContent='Membaca audio…';g.disabled=true;pg.hidden=false;pg.value=0;$('#res').hidden=true;
+try{
+if(!window.lamejs)throw Error('Pustaka MP3 gagal dimuat. Periksa koneksi lalu muat ulang halaman.');
+const AC=window.AudioContext||window.webkitAudioContext;let cx;try{cx=new AC({sampleRate:44100})}catch(_){cx=new AC()}
+let buf;try{buf=await cx.decodeAudioData(await file.arrayBuffer())}catch(_){throw Error('Audio tidak bisa dibaca. Formatnya belum didukung browser, atau file terlalu besar untuk memori perangkat.')}
+cx.close();
+const [k,,t]=Q[qi],L=buf.getChannelData(0),R=buf.numberOfChannels>1?buf.getChannelData(1):null,ch=t=='mono'||!R?1:2,e=new lamejs.Mp3Encoder(ch,buf.sampleRate,k),P=[],S=1152*10;
+m.textContent='Mengonversi…';
+for(let i=0,c=0;i<L.length;i+=S,c++){
+const a=L.subarray(i,i+S),b=R&&R.subarray(i,i+S),d=ch==2?e.encodeBuffer(i16(a),i16(b)):e.encodeBuffer(i16(a,b));
+if(d.length)P.push(d);
+if(c%8==7){pg.value=i/L.length;await new Promise(r=>setTimeout(r))}}
+const z=e.flush();if(z.length)P.push(z);
+out=new Blob(P,{type:'audio/mpeg'});
+$('#au').src=URL.createObjectURL(out);$('#rs').textContent='Hasil '+mb(out.size)+' MB, dari '+mb(file.size)+' MB. Putar dulu untuk mengecek suaranya.';$('#res').hidden=false;m.textContent='';
+}catch(x){m.className='err';m.textContent=x.message}
+g.disabled=false;pg.hidden=true};
+$('#sv').onclick=async()=>{const m=$('#msg'),nm=file.name.replace(/\.[^.]+$/,'')+'.mp3';m.className='';
+try{const r=await save(out,nm);m.textContent=r=='zip'?'Tersimpan sebagai ZIP, karena pratinjau ini tidak mengizinkan MP3 langsung. Ekstrak untuk mendapatkan MP3.':'Tersimpan.'}
+catch(x){m.className='err';m.textContent=x.code=='declined'?'Penyimpanan dibatalkan.':(x.message||'Gagal menyimpan.')}};
+</script>
+</body>
+</html>
